@@ -40,7 +40,7 @@ def test_default_config():
     assert cfg.training.device == "cuda"
     assert cfg.training.numWorkers == 4
 
-    print("✓ Default config test passed")
+    print("OK Default config test passed")
 
 
 def test_custom_config():
@@ -58,7 +58,7 @@ def test_custom_config():
     assert cfg.training.batchSize == 8
     assert cfg.training.numEpochs == 100
 
-    print("✓ Custom config test passed")
+    print("OK Custom config test passed")
 
 
 def test_validation_nway():
@@ -69,7 +69,7 @@ def test_validation_nway():
         assert False, "Should have raised assertion error"
     except AssertionError as e:
         assert "nWay" in str(e) and "numClasses" in str(e)
-        print(f"✓ nWay validation test passed: {e}")
+        print(f"OK nWay validation test passed: {e}")
 
 
 def test_validation_batch_size():
@@ -81,7 +81,7 @@ def test_validation_batch_size():
         assert False, "Should have raised assertion error"
     except AssertionError as e:
         assert "batchSize" in str(e) and "nWay" in str(e)
-        print(f"✓ Batch size validation test passed: {e}")
+        print(f"OK Batch size validation test passed: {e}")
 
 
 if __name__ == "__main__":
@@ -89,4 +89,4 @@ if __name__ == "__main__":
     test_custom_config()
     test_validation_nway()
     test_validation_batch_size()
-    print("\n✅ All configuration tests passed!")
+    print("\nAll configuration tests passed!")
