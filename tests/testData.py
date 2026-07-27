@@ -14,7 +14,7 @@ def test_create_sample_image():
     # 检查掩码
     assert mask.shape == (512, 512)
     assert mask.dtype == np.int64
-    assert set(np.unique(mask)).issubset(set(range(7)))
+    assert set(np.unique(mask)) == set(range(7))
 
 def test_create_sample_dataset():
     """测试数据集生成"""

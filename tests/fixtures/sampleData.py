@@ -22,7 +22,9 @@ def create_sample_image(size=(512, 512), numClasses=7):
     mask = np.zeros((H, W), dtype=np.int64)
     patch_h = H // numClasses
     for i in range(numClasses):
-        mask[i*patch_h:(i+1)*patch_h, :] = i
+        start = i * patch_h
+        end = H if i == numClasses - 1 else (i + 1) * patch_h
+        mask[start:end, :] = i
 
     return image, mask
 
@@ -38,13 +40,15 @@ def create_sample_dataset(num_samples=20, numClasses=7, save_dir=None):
         dataset: list of (image, mask) tuples
     """
     dataset = []
+    if save_dir:
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
     for i in range(num_samples):
         img, mask = create_sample_image(numClasses=numClasses)
         dataset.append((img, mask))
 
         if save_dir:
-            save_dir = Path(save_dir)
-            save_dir.mkdir(parents=True, exist_ok=True)
             np.save(save_dir / f"img_{i:03d}.npy", img)
             np.save(save_dir / f"mask_{i:03d}.npy", mask)
 
