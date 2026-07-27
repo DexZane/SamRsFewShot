@@ -22,45 +22,11 @@ from config.default import Config, ModelConfig, DataConfig, TrainingConfig
 from models.samLora import SAMLoRA
 from models.promptLearner import SimplePromptLearner
 from training.trainer import Trainer
-from tests.fixtures.sampleData import create_sample_dataset
+from data.lovedaDataset import LoveDADataset
+from data.transforms import DefaultTransform
+from data.fewShotSampler import FewShotSampler
 
 
-class SimpleDataset(Dataset):
-    """
-    Simple dataset wrapper for (image, mask) tuples
-
-    Converts numpy arrays to DataLoader format with proper batching.
-    """
-
-    def __init__(self, samples, numClasses):
-        """
-        Args:
-            samples: List of (image, mask) tuples
-            numClasses: Number of semantic classes
-        """
-        self.samples = samples
-        self.numClasses = numClasses
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        img, mask = self.samples[idx]
-
-        # Convert image: (H, W, 3) uint8 -> (3, H, W) float32, normalized to [0, 1]
-        img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-
-        # Convert mask: (H, W) int64 -> (1, H, W) float32
-        mask = torch.from_numpy(mask).unsqueeze(0).float()
-
-        # Assign class_id (cycle through classes for demonstration)
-        classId = idx % self.numClasses
-
-        return {
-            'image': img,
-            'mask': mask,
-            'class_id': classId
-        }
 
 
 def parse_args():
@@ -97,8 +63,8 @@ def parse_args():
                         help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate')
-    parser.add_argument('--device', type=str, default='cuda',
-                        choices=['cuda', 'cpu'],
+    parser.add_argument('--device', type=str, default='mps',
+                        choices=['cuda', 'cpu', 'mps'],
                         help='Device to use for training')
     parser.add_argument('--evalInterval', type=int, default=5,
                         help='Evaluate every N epochs')
@@ -156,30 +122,53 @@ def main():
     print(f"  Device: {config.training.device}")
     print()
 
-    # TODO: Replace with real LoveDA dataset loader
-    # Currently using test data for demonstration
-    print("Creating test datasets...")
-    trainSamples = create_sample_dataset(num_samples=40, numClasses=config.data.numClasses)
-    valSamples = create_sample_dataset(num_samples=10, numClasses=config.data.numClasses)
-    print(f"  Train samples: {len(trainSamples)}")
-    print(f"  Val samples: {len(valSamples)}")
+    # Create LoveDA datasets with transforms
+    print("Loading LoveDA datasets...")
+    transform = DefaultTransform(target_size=1024)
+
+    trainDataset = LoveDADataset(
+        root=config.data.dataRoot,
+        split='Train',
+        download=False,  # Assume dataset is already downloaded
+        transform=transform
+    )
+    valDataset = LoveDADataset(
+        root=config.data.dataRoot,
+        split='Val',
+        download=False,
+        transform=transform
+    )
+
+    print(f"  Train samples: {len(trainDataset)}")
+    print(f"  Val samples: {len(valDataset)}")
     print()
 
-    # Create datasets
-    trainDataset = SimpleDataset(trainSamples, config.data.numClasses)
-    valDataset = SimpleDataset(valSamples, config.data.numClasses)
+    # Create few-shot samplers
+    print("Creating few-shot samplers...")
+    trainSampler = FewShotSampler(
+        dataset=trainDataset,
+        n_way=config.data.nWay,
+        k_shot=config.data.kShot,
+        n_query=15,  # Number of query samples per class
+        n_episodes=100  # Number of episodes per epoch
+    )
+    valSampler = FewShotSampler(
+        dataset=valDataset,
+        n_way=config.data.nWay,
+        k_shot=config.data.kShot,
+        n_query=10,
+        n_episodes=20
+    )
 
-    # Create dataloaders
+    # Create dataloaders with batch samplers
     trainLoader = DataLoader(
         trainDataset,
-        batch_size=config.training.batchSize,
-        shuffle=True,
-        num_workers=0  # Set to 0 for compatibility
+        batch_sampler=trainSampler,
+        num_workers=0  # Set to 0 for compatibility with MPS
     )
     valLoader = DataLoader(
         valDataset,
-        batch_size=config.training.batchSize,
-        shuffle=False,
+        batch_sampler=valSampler,
         num_workers=0
     )
 
