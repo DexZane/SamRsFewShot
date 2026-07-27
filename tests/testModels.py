@@ -2,6 +2,7 @@ import pytest
 import torch
 from models.samLora import SAMLoRA
 from models.promptLearner import SimplePromptLearner
+from models.loss import DiceLoss, FocalLoss, CombinedLoss
 
 
 def test_sam_lora_initialization():
@@ -194,3 +195,133 @@ def test_simple_prompt_learner_get_prompt_for_class():
 
     assert torch.allclose(prompt, prompt_from_forward), \
         "get_prompt_for_class与forward结果应该一致"
+
+
+def test_dice_loss():
+    """测试Dice Loss"""
+    loss_fn = DiceLoss(smooth=1.0)
+
+    # 模拟预测和标签
+    batchSize = 4
+    height, width = 256, 256
+    preds = torch.randn(batchSize, 1, height, width, requires_grad=True)
+    targets = torch.randint(0, 2, (batchSize, 1, height, width)).float()
+
+    # 计算损失
+    loss = loss_fn(preds, targets)
+
+    # 检查输出
+    assert loss.shape == torch.Size([]), f"损失应该是标量，实际形状: {loss.shape}"
+    assert loss.item() >= 0, f"Dice Loss应该非负，实际值: {loss.item()}"
+    assert loss.requires_grad, "损失应该支持梯度"
+
+    # 测试梯度反传
+    loss.backward()
+    assert preds.grad is not None, "预测值应该有梯度"
+    assert preds.grad.shape == preds.shape, "梯度形状应该与输入相同"
+
+
+def test_dice_loss_perfect_match():
+    """测试Dice Loss在完美匹配时接近0"""
+    loss_fn = DiceLoss(smooth=1.0)
+
+    # 完美匹配的情况
+    targets = torch.ones(2, 1, 64, 64)
+    preds = torch.ones(2, 1, 64, 64) * 10.0  # 经过sigmoid后接近1
+
+    loss = loss_fn(preds, targets)
+
+    # 完美匹配时损失应该接近0
+    assert loss.item() < 0.1, f"完美匹配时损失应接近0，实际值: {loss.item()}"
+
+
+def test_focal_loss():
+    """测试Focal Loss"""
+    loss_fn = FocalLoss(alpha=0.25, gamma=2.0)
+
+    # 模拟预测logits和标签
+    batchSize = 4
+    height, width = 256, 256
+    preds = torch.randn(batchSize, 1, height, width, requires_grad=True)
+    targets = torch.randint(0, 2, (batchSize, 1, height, width)).float()
+
+    # 计算损失
+    loss = loss_fn(preds, targets)
+
+    # 检查输出
+    assert loss.shape == torch.Size([]), f"损失应该是标量，实际形状: {loss.shape}"
+    assert loss.item() >= 0, f"Focal Loss应该非负，实际值: {loss.item()}"
+    assert loss.requires_grad, "损失应该支持梯度"
+
+    # 测试梯度反传
+    loss.backward()
+    assert preds.grad is not None, "预测值应该有梯度"
+    assert preds.grad.shape == preds.shape, "梯度形状应该与输入相同"
+
+
+def test_focal_loss_easy_vs_hard():
+    """测试Focal Loss对易分类样本的权重降低"""
+    loss_fn = FocalLoss(alpha=0.25, gamma=2.0)
+
+    # 易分类样本：预测与标签一致且置信度高
+    easy_preds = torch.ones(2, 1, 64, 64) * 5.0  # 高置信度预测为1
+    easy_targets = torch.ones(2, 1, 64, 64)
+
+    # 难分类样本：预测与标签不一致
+    hard_preds = torch.ones(2, 1, 64, 64) * -5.0  # 高置信度预测为0
+    hard_targets = torch.ones(2, 1, 64, 64)  # 但标签是1
+
+    easy_loss = loss_fn(easy_preds, easy_targets)
+    hard_loss = loss_fn(hard_preds, hard_targets)
+
+    # 难分类样本的损失应该明显大于易分类样本
+    assert hard_loss.item() > easy_loss.item() * 5, \
+        f"难分类样本损失({hard_loss.item():.4f})应远大于易分类样本({easy_loss.item():.4f})"
+
+
+def test_combined_loss():
+    """测试Combined Loss"""
+    loss_fn = CombinedLoss(dice_weight=1.0, focal_weight=0.5)
+
+    # 模拟预测logits和标签
+    batchSize = 4
+    height, width = 256, 256
+    preds = torch.randn(batchSize, 1, height, width, requires_grad=True)
+    targets = torch.randint(0, 2, (batchSize, 1, height, width)).float()
+
+    # 计算损失
+    loss = loss_fn(preds, targets)
+
+    # 检查输出
+    assert loss.shape == torch.Size([]), f"损失应该是标量，实际形状: {loss.shape}"
+    assert loss.item() >= 0, f"Combined Loss应该非负，实际值: {loss.item()}"
+    assert loss.requires_grad, "损失应该支持梯度"
+
+    # 测试梯度反传
+    loss.backward()
+    assert preds.grad is not None, "预测值应该有梯度"
+    assert preds.grad.shape == preds.shape, "梯度形状应该与输入相同"
+
+
+def test_combined_loss_weights():
+    """测试Combined Loss权重设置"""
+    # 纯Dice Loss
+    dice_only = CombinedLoss(dice_weight=1.0, focal_weight=0.0)
+    # 纯Focal Loss
+    focal_only = CombinedLoss(dice_weight=0.0, focal_weight=1.0)
+    # 组合Loss
+    combined = CombinedLoss(dice_weight=1.0, focal_weight=1.0)
+
+    # 相同输入
+    preds = torch.randn(2, 1, 64, 64, requires_grad=True)
+    targets = torch.randint(0, 2, (2, 1, 64, 64)).float()
+
+    loss_dice = dice_only(preds.clone().detach().requires_grad_(True), targets)
+    loss_focal = focal_only(preds.clone().detach().requires_grad_(True), targets)
+    loss_combined = combined(preds.clone().detach().requires_grad_(True), targets)
+
+    # 组合损失应该大于任一单独损失（权重为1.0时）
+    assert loss_combined.item() > loss_dice.item() * 0.5, \
+        "组合损失应该反映Dice Loss的贡献"
+    assert loss_combined.item() > loss_focal.item() * 0.5, \
+        "组合损失应该反映Focal Loss的贡献"
