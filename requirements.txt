@@ -1,0 +1,10 @@
+torch>=2.0.0
+torchvision>=0.15.0
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
+peft>=0.5.0
+numpy>=1.24.0
+pillow>=10.0.0
+tqdm>=4.65.0
+tensorboard>=2.13.0
+pytest>=7.4.0
+pytest-cov>=4.1.0
