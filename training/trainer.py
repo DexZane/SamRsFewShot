@@ -65,6 +65,13 @@ class Trainer:
             weight_decay=config.training.weightDecay
         )
 
+        # Setup learning rate scheduler (Cosine Annealing)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer,
+            T_max=config.training.numEpochs,
+            eta_min=config.training.learningRate * 0.01  # 最低降到初始lr的1%
+        )
+
         # Setup loss function
         self.criterion = CombinedLoss()
 
@@ -80,9 +87,15 @@ class Trainer:
         # Track best validation mIoU
         self.bestMiou = 0.0
 
+        # Early stopping
+        self.patience = getattr(config.training, 'patience', 10)  # 默认10个epoch不涨就停
+        self.patienceCounter = 0
+
         self.logger.info("Trainer initialized")
         self.logger.info(f"Device: {self.device}")
         self.logger.info(f"Optimizer: AdamW (lr={config.training.learningRate})")
+        self.logger.info(f"Scheduler: CosineAnnealingLR (T_max={config.training.numEpochs}, eta_min={config.training.learningRate * 0.01:.6f})")
+        self.logger.info(f"Early stopping: patience={self.patience}")
         self.logger.info(f"Total trainable parameters: {sum(p.numel() for p in allParams)}")
 
     def _build_binary_targets(self, masks, classIds):
@@ -223,11 +236,15 @@ class Trainer:
         self.logger.log_scalar('val/mIoU', avgMiou, epoch)
         self.logger.info(f"Epoch {epoch}: val_mIoU = {avgMiou:.4f}")
 
-        # Save best model
+        # Save best model and update early stopping counter
         if avgMiou > self.bestMiou:
             self.bestMiou = avgMiou
+            self.patienceCounter = 0  # 重置计数器
             self.save_checkpoint(epoch, is_best=True)
             self.logger.info(f"New best mIoU: {self.bestMiou:.4f}")
+        else:
+            self.patienceCounter += 1
+            self.logger.info(f"No improvement for {self.patienceCounter} validation(s)")
 
         return avgMiou
 
@@ -244,7 +261,9 @@ class Trainer:
             'model_state_dict': self.model.state_dict(),
             'prompt_learner_state_dict': self.promptLearner.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
             'best_miou': self.bestMiou,
+            'patience_counter': self.patienceCounter,
             'config': self.config
         }
 
@@ -267,7 +286,7 @@ class Trainer:
 
     def train(self):
         """
-        Main training loop
+        Main training loop with early stopping
         """
         self.logger.info("Starting training...")
 
@@ -275,9 +294,21 @@ class Trainer:
             # Train for one epoch
             avgLoss = self.train_epoch(epoch)
 
+            # Step scheduler (update learning rate)
+            self.scheduler.step()
+            currentLr = self.scheduler.get_last_lr()[0]
+            self.logger.log_scalar('train/lr', currentLr, epoch)
+            self.logger.info(f"Epoch {epoch}: learning rate = {currentLr:.6f}")
+
             # Validate at specified intervals
             if epoch % self.config.training.evalInterval == 0:
                 avgMiou = self.validate(epoch)
+
+                # Early stopping check
+                if self.patienceCounter >= self.patience:
+                    self.logger.info(f"Early stopping triggered after {epoch} epochs")
+                    self.logger.info(f"No improvement for {self.patience} consecutive validations")
+                    break
 
             # Save checkpoint at specified intervals
             if epoch % self.config.training.saveInterval == 0:
