@@ -85,6 +85,9 @@ class FocalLoss(nn.Module):
         Returns:
             loss: 标量损失值
         """
+        # 确保targets是float类型
+        targets = targets.float()
+
         # 使用binary_cross_entropy_with_logits计算BCE
         bce_loss = F.binary_cross_entropy_with_logits(
             preds, targets, reduction='none'

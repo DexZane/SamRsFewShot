@@ -113,7 +113,7 @@ class SAMLoRA(nn.Module):
             prompt_embeddings: 提示嵌入 (B, embedDim)
 
         Returns:
-            masks: 预测掩码 (B, 1, H, W)
+            masks: 预测掩码 (B, 1, 1024, 1024) - upsampled to input resolution
         """
         # 图像编码（通过带LoRA的encoder）
         image_embeddings = self.sam.image_encoder(images)
@@ -145,9 +145,17 @@ class SAMLoRA(nn.Module):
             masks_list.append(low_res_mask)
 
         # 合并所有样本的masks
-        low_res_masks = torch.cat(masks_list, dim=0)
+        low_res_masks = torch.cat(masks_list, dim=0)  # (B, 1, 256, 256)
 
-        return low_res_masks
+        # Upsample to input resolution (1024x1024)
+        high_res_masks = torch.nn.functional.interpolate(
+            low_res_masks,
+            size=(images.shape[2], images.shape[3]),
+            mode='bilinear',
+            align_corners=False
+        )  # (B, 1, 1024, 1024)
+
+        return high_res_masks
 
     def get_trainable_params(self):
         """获取可训练参数列表

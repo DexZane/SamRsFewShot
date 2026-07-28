@@ -24,7 +24,7 @@ from models.promptLearner import SimplePromptLearner
 from training.trainer import Trainer
 from data.lovedaDataset import LoveDADataset
 from data.transforms import DefaultTransform
-from data.fewShotSampler import FewShotSampler
+from data.fewshotSampler import FewShotSampler
 
 
 
@@ -143,33 +143,53 @@ def main():
     print(f"  Val samples: {len(valDataset)}")
     print()
 
+    # Extract labels from dataset for FewShotSampler
+    print("Extracting labels for few-shot sampling...")
+    trainLabels = [trainDataset[i][2] for i in range(len(trainDataset))]
+    valLabels = [valDataset[i][2] for i in range(len(valDataset))]
+
+    # Collate function to convert tuple to dict format
+    def collate_fn(batch):
+        """Convert list of (image, mask, class_id) tuples to dict format."""
+        images = torch.stack([item[0] for item in batch])  # (B, 3, H, W)
+        masks = torch.stack([item[1] for item in batch])   # (B, H, W)
+        masks = masks.unsqueeze(1)  # (B, 1, H, W) - add channel dimension
+        class_ids = torch.tensor([item[2] for item in batch])
+        return {
+            'image': images,
+            'mask': masks,
+            'class_id': class_ids
+        }
+
     # Create few-shot samplers
     print("Creating few-shot samplers...")
     trainSampler = FewShotSampler(
-        dataset=trainDataset,
-        n_way=config.data.nWay,
-        k_shot=config.data.kShot,
-        n_query=15,  # Number of query samples per class
-        n_episodes=100  # Number of episodes per epoch
+        labels=trainLabels,
+        nWay=config.data.nWay,
+        kShot=config.data.kShot,
+        nEpisodes=100,  # Number of episodes per epoch
+        seed=42
     )
     valSampler = FewShotSampler(
-        dataset=valDataset,
-        n_way=config.data.nWay,
-        k_shot=config.data.kShot,
-        n_query=10,
-        n_episodes=20
+        labels=valLabels,
+        nWay=config.data.nWay,
+        kShot=config.data.kShot,
+        nEpisodes=20,
+        seed=123
     )
 
     # Create dataloaders with batch samplers
     trainLoader = DataLoader(
         trainDataset,
         batch_sampler=trainSampler,
-        num_workers=0  # Set to 0 for compatibility with MPS
+        num_workers=0,  # Set to 0 for compatibility with MPS
+        collate_fn=collate_fn
     )
     valLoader = DataLoader(
         valDataset,
         batch_sampler=valSampler,
-        num_workers=0
+        num_workers=0,
+        collate_fn=collate_fn
     )
 
     print("Initializing models...")
@@ -177,7 +197,7 @@ def main():
     # Initialize SAM with LoRA
     model = SAMLoRA(
         samCheckpoint=config.model.samCheckpoint,
-        modelType=config.model.samModelType,
+        model_type=config.model.samModelType,
         loraRank=config.model.loraRank,
         loraAlpha=config.model.loraAlpha,
         loraDropout=config.model.loraDropout
@@ -185,7 +205,7 @@ def main():
 
     # Initialize Prompt Learner
     promptLearner = SimplePromptLearner(
-        numClasses=config.data.numClasses,
+        nClasses=config.data.numClasses,
         nPrompts=config.model.nPrompts,
         embedDim=256,  # SAM image encoder output dimension
         initStd=config.model.promptInitStd

@@ -99,12 +99,17 @@ class LoveDADataset(Dataset):
                 mask = Image.open(mask_path)
                 mask_array = np.array(mask, dtype=np.int64)
                 mask_tensor = torch.from_numpy(mask_array)
-                # 找到最常见的类别（排除255）
-                unique, counts = torch.unique(mask_tensor[mask_tensor != 255], return_counts=True)
+                # 找到最常见的类别（排除255和背景类0）
+                unique, counts = torch.unique(mask_tensor[(mask_tensor != 255) & (mask_tensor != 0)], return_counts=True)
                 if len(unique) > 0:
                     dominant_class = int(unique[counts.argmax()])
                 else:
-                    dominant_class = 0  # 默认为background
+                    # 如果全是背景，则检查是否有任何非背景像素
+                    unique_all, counts_all = torch.unique(mask_tensor[mask_tensor != 255], return_counts=True)
+                    if len(unique_all) > 0:
+                        dominant_class = int(unique_all[counts_all.argmax()])
+                    else:
+                        dominant_class = 0  # 默认为background
 
                 samples.append((img_path, mask_path, dominant_class))
 
