@@ -144,9 +144,11 @@ def main():
     print()
 
     # Extract labels from dataset for FewShotSampler
+    # 直接读samples里已缓存的class_id：走__getitem__会把每张图都resize到1024
+    # 再归一化一遍，只为拿一个整数，纯浪费启动时间
     print("Extracting labels for few-shot sampling...")
-    trainLabels = [trainDataset[i][2] for i in range(len(trainDataset))]
-    valLabels = [valDataset[i][2] for i in range(len(valDataset))]
+    trainLabels = [trainDataset.samples[i][2] for i in range(len(trainDataset))]
+    valLabels = [valDataset.samples[i][2] for i in range(len(valDataset))]
 
     # Collate function to convert tuple to dict format
     def collate_fn(batch):
