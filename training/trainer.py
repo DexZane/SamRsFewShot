@@ -15,6 +15,17 @@ from utils.logger import Logger
 from utils.metrics import compute_iou
 
 
+def _make_grad_scaler(enabled):
+    """构造GradScaler，兼容不同PyTorch版本的API
+
+    torch.amp.GradScaler 从 2.3 才存在；2.2 及更早只有 torch.cuda.amp.GradScaler
+    （在新版本里该路径会发 FutureWarning，所以优先用新API）。
+    """
+    if hasattr(torch.amp, "GradScaler"):
+        return torch.amp.GradScaler("cuda", enabled=enabled)
+    return torch.cuda.amp.GradScaler(enabled=enabled)
+
+
 class Trainer:
     """
     Trainer for SAM-RS Few-Shot Learning
@@ -41,7 +52,7 @@ class Trainer:
 
         # 混合精度：仅CUDA可用。GradScaler在非CUDA时自动退化为no-op
         self.useAmp = self.device.type == "cuda"
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.useAmp)
+        self.scaler = _make_grad_scaler(self.useAmp)
 
         # Setup optimizer (optimize both model and prompt_learner)
         modelParams = list(self.model.get_trainable_params())
