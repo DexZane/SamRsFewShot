@@ -27,13 +27,15 @@ class DiceLoss(nn.Module):
         super(DiceLoss, self).__init__()
         self.smooth = smooth
 
-    def forward(self, preds, targets):
+    def forward(self, preds, targets, validMask=None):
         """
         计算Dice Loss
 
         Args:
             preds: 预测值 (B, 1, H, W)，logits或概率
             targets: 真实标签 (B, 1, H, W)，二值标签 {0, 1}
+            validMask: 有效像素掩码 (B, 1, H, W)，True表示参与计算。
+                None表示全部像素有效。用于排除padding的ignore区域。
 
         Returns:
             loss: 标量损失值
@@ -41,9 +43,17 @@ class DiceLoss(nn.Module):
         # 将预测值转换为概率
         preds = torch.sigmoid(preds)
 
+        targets = targets.float()
+
+        # 屏蔽无效像素：置零后不贡献交集，也不贡献并集
+        if validMask is not None:
+            validMask = validMask.to(preds.dtype)
+            preds = preds * validMask
+            targets = targets * validMask
+
         # 展平张量以便计算
-        preds = preds.view(-1)
-        targets = targets.view(-1)
+        preds = preds.reshape(-1)
+        targets = targets.reshape(-1)
 
         # 计算交集和并集
         intersection = (preds * targets).sum()
@@ -74,13 +84,15 @@ class FocalLoss(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
 
-    def forward(self, preds, targets):
+    def forward(self, preds, targets, validMask=None):
         """
         计算Focal Loss
 
         Args:
             preds: 预测logits (B, 1, H, W)
             targets: 真实标签 (B, 1, H, W)，二值标签 {0, 1}
+            validMask: 有效像素掩码 (B, 1, H, W)，True表示参与计算。
+                None表示全部像素有效。用于排除padding的ignore区域。
 
         Returns:
             loss: 标量损失值
@@ -108,6 +120,14 @@ class FocalLoss(nn.Module):
         # 最终的Focal Loss
         focal_loss = alpha_weight * focal_weight * bce_loss
 
+        # 仅在有效像素上取平均
+        if validMask is not None:
+            validMask = validMask.to(focal_loss.dtype)
+            denom = validMask.sum()
+            if denom == 0:
+                return focal_loss.sum() * 0.0
+            return (focal_loss * validMask).sum() / denom
+
         # 返回平均损失
         return focal_loss.mean()
 
@@ -129,20 +149,22 @@ class CombinedLoss(nn.Module):
         self.dice_loss = DiceLoss()
         self.focal_loss = FocalLoss()
 
-    def forward(self, preds, targets):
+    def forward(self, preds, targets, validMask=None):
         """
         计算组合损失
 
         Args:
             preds: 预测logits (B, 1, H, W)
             targets: 真实标签 (B, 1, H, W)，二值标签 {0, 1}
+            validMask: 有效像素掩码 (B, 1, H, W)，True表示参与计算。
+                None表示全部像素有效。
 
         Returns:
             loss: 标量损失值
         """
         # 计算各项损失
-        dice = self.dice_loss(preds, targets)
-        focal = self.focal_loss(preds, targets)
+        dice = self.dice_loss(preds, targets, validMask)
+        focal = self.focal_loss(preds, targets, validMask)
 
         # 加权组合
         combined = self.dice_weight * dice + self.focal_weight * focal

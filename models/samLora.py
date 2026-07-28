@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint as cp
 from segment_anything import sam_model_registry
 from typing import Optional
 import math
@@ -44,6 +45,28 @@ class LinearWithLoRA(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x) + self.lora(x)
+
+
+class CheckpointedBlock(nn.Module):
+    """包装Transformer block，前向时使用梯度检查点
+
+    训练时不保存中间激活，反向传播时重算，用时间换显存。
+    推理/验证时直接调用原block，不产生额外开销。
+
+    Args:
+        block: 被包装的原始block
+    """
+
+    def __init__(self, block: nn.Module):
+        super().__init__()
+        self.block = block
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training and torch.is_grad_enabled():
+            # use_reentrant=False：即使输入张量不requires_grad，
+            # block内部的LoRA参数梯度也能正确回传
+            return cp.checkpoint(self.block, x, use_reentrant=False)
+        return self.block(x)
 
 
 class SAMLoRA(nn.Module):
@@ -95,6 +118,9 @@ class SAMLoRA(nn.Module):
         # 手动注入LoRA层到注意力模块的qkv投影
         self._inject_lora_layers(loraRank, loraAlpha, loraDropout)
 
+        # 用梯度检查点包装encoder的每个block（训练时省显存，验证时无开销）
+        self._wrap_blocks_with_checkpoint()
+
         # 获取embedding维度
         self.embedDim = self.sam.prompt_encoder.embed_dim
 
@@ -104,6 +130,16 @@ class SAMLoRA(nn.Module):
             # 替换qkv线性层
             original_qkv = block.attn.qkv
             block.attn.qkv = LinearWithLoRA(original_qkv, rank, alpha, dropout)
+
+    def _wrap_blocks_with_checkpoint(self):
+        """把图像编码器的每个block包进CheckpointedBlock
+
+        无条件包装，保证state_dict的键在训练和推理时始终一致。
+        """
+        encoder = self.sam.image_encoder
+        encoder.blocks = nn.ModuleList(
+            [CheckpointedBlock(block) for block in encoder.blocks]
+        )
 
     def forward(self, images: torch.Tensor, prompt_embeddings: torch.Tensor) -> torch.Tensor:
         """前向传播

@@ -39,7 +39,7 @@ class TrainingConfig:
     saveInterval: int = 10
     checkpointDir: str = "./checkpoints"
     logDir: str = "./runs"
-    device: str = "mps"  # Use MPS for Apple Silicon, or "cuda" for NVIDIA GPU
+    device: str = "cuda"  # NVIDIA GPU；Apple Silicon 本地调试可传 --device mps
     numWorkers: int = 4
 
 

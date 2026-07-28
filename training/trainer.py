@@ -39,6 +39,10 @@ class Trainer:
         self.model.to(self.device)
         self.promptLearner.to(self.device)
 
+        # 混合精度：仅CUDA可用。GradScaler在非CUDA时自动退化为no-op
+        self.useAmp = self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.useAmp)
+
         # Setup optimizer (optimize both model and prompt_learner)
         modelParams = list(self.model.get_trainable_params())
         promptParams = list(self.promptLearner.parameters())
@@ -70,6 +74,27 @@ class Trainer:
         self.logger.info(f"Optimizer: AdamW (lr={config.training.learningRate})")
         self.logger.info(f"Total trainable parameters: {sum(p.numel() for p in allParams)}")
 
+    def _build_binary_targets(self, masks, classIds):
+        """把7类语义标签图转成"当前episode类别 vs 其它"的二值目标
+
+        模型输出单通道mask，训练目标必须是二值的：episode指定的类别为前景1，
+        其它类别为背景0，原始的255（padding/ignore）不参与损失。
+
+        Args:
+            masks: (B, 1, H, W) int64，取值 [0, numClasses-1] 或 255
+            classIds: (B,) int64，每个样本本episode的目标类别
+
+        Returns:
+            targets: (B, 1, H, W) float32，前景1/背景0
+            validMask: (B, 1, H, W) bool，True表示该像素参与损失
+        """
+        classIds = classIds.view(-1, 1, 1, 1).to(masks.device)
+
+        validMask = masks != 255
+        targets = ((masks == classIds) & validMask).float()
+
+        return targets, validMask
+
     def train_epoch(self, epoch):
         """
         Train for one epoch
@@ -95,23 +120,29 @@ class Trainer:
             masks = batch['mask'].to(self.device)    # (B, 1, H, W)
             classIds = batch['class_id'].to(self.device)  # (B,)
 
-            # Forward pass
-            # 1. Get prompts from prompt learner
-            prompts = self.promptLearner(classIds)  # (B, nPrompts, embedDim)
+            # Forward pass（混合精度）
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16,
+                                enabled=self.useAmp):
+                # 1. Get prompts from prompt learner
+                prompts = self.promptLearner(classIds)  # (B, nPrompts, embedDim)
 
-            # 2. Average prompts to get single embedding per sample
-            promptEmbeds = prompts.mean(dim=1)  # (B, embedDim)
+                # 2. Average prompts to get single embedding per sample
+                promptEmbeds = prompts.mean(dim=1)  # (B, embedDim)
 
-            # 3. Pass through SAM model
-            predMasks = self.model(images, promptEmbeds)  # (B, 1, H, W)
+                # 3. Pass through SAM model
+                predMasks = self.model(images, promptEmbeds)  # (B, 1, H, W)
 
-            # Compute loss
-            loss = self.criterion(predMasks, masks)
+            # 把7类标签图转成本episode类别的二值前景，255为ignore
+            targets, validMask = self._build_binary_targets(masks, classIds)
+
+            # 损失在fp32下计算：Dice的除法和BCE的log在fp16下容易溢出
+            loss = self.criterion(predMasks.float(), targets, validMask)
 
             # Backward pass
             self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             # Update metrics
             epochLoss += loss.item()
@@ -151,18 +182,25 @@ class Trainer:
                 masks = batch['mask'].to(self.device)
                 classIds = batch['class_id'].to(self.device)
 
-                # Forward pass
-                prompts = self.promptLearner(classIds)
-                promptEmbeds = prompts.mean(dim=1)
-                predMasks = self.model(images, promptEmbeds)
+                # Forward pass（与训练一致的混合精度）
+                with torch.autocast(device_type=self.device.type, dtype=torch.float16,
+                                    enabled=self.useAmp):
+                    prompts = self.promptLearner(classIds)
+                    promptEmbeds = prompts.mean(dim=1)
+                    predMasks = self.model(images, promptEmbeds)
 
-                # Convert predictions to class labels
-                # predMasks is (B, 1, H, W) with logits
-                predLabels = (torch.sigmoid(predMasks) > 0.5).long().squeeze(1)  # (B, H, W)
-                targetLabels = masks.long().squeeze(1)  # (B, H, W)
+                # 二值前景/背景评估：模型只输出单通道，按7类算IoU没有意义
+                targets, validMask = self._build_binary_targets(masks, classIds)
 
-                # Compute IoU
-                miou, _ = compute_iou(predLabels, targetLabels, self.config.data.numClasses)
+                predLabels = (torch.sigmoid(predMasks.float()) > 0.5).long()  # (B, 1, H, W)
+                targetLabels = targets.long()
+
+                # ignore区域排除：预测和标签都置为背景，不影响前景IoU
+                predLabels = predLabels * validMask.long()
+                targetLabels = targetLabels * validMask.long()
+
+                # 二值IoU：类别0=背景，类别1=目标前景
+                miou, _ = compute_iou(predLabels.squeeze(1), targetLabels.squeeze(1), numClasses=2)
                 totalMiou += miou
 
         # Compute average mIoU

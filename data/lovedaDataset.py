@@ -86,7 +86,11 @@ class LoveDADataset(Dataset):
                 continue
 
             # 遍历图像文件
-            image_files = sorted([f for f in os.listdir(images_dir) if f.endswith('.png')])
+            # 排除macOS的AppleDouble伴生文件（._xxx.png），它们不是有效图像
+            image_files = sorted([
+                f for f in os.listdir(images_dir)
+                if f.endswith('.png') and not f.startswith('._')
+            ])
 
             for img_file in image_files:
                 img_path = os.path.join(images_dir, img_file)
