@@ -131,7 +131,7 @@ class Trainer:
             masks = batch['mask'].to(self.device)    # (B, 1, H, W)
             classIds = batch['class_id'].to(self.device)  # (B,)
 
-            # Forward pass（混合精度）
+            # Forward + backward pass（混合精度包裹整个计算图，让checkpoint重计算也在fp16下执行）
             with torch.autocast(device_type=self.device.type, dtype=torch.float16,
                                 enabled=self.useAmp):
                 # 1. Get prompts from prompt learner
@@ -143,17 +143,19 @@ class Trainer:
                 # 3. Pass through SAM model
                 predMasks = self.model(images, promptEmbeds)  # (B, 1, H, W)
 
-            # 把7类标签图转成本episode类别的二值前景，255为ignore
-            targets, validMask = self._build_binary_targets(masks, classIds)
+                # 把7类标签图转成本episode类别的二值前景，255为ignore
+                targets, validMask = self._build_binary_targets(masks, classIds)
 
-            # 损失在fp32下计算：Dice的除法和BCE的log在fp16下容易溢出
-            loss = self.criterion(predMasks.float(), targets, validMask)
+                # 损失强制在fp32下计算：Dice的除法和BCE的log在fp16下容易溢出
+                # 用autocast(enabled=False)临时退出混合精度，确保loss稳定
+                with torch.autocast(device_type=self.device.type, enabled=False):
+                    loss = self.criterion(predMasks.float(), targets.float(), validMask.float())
 
-            # Backward pass
-            self.optimizer.zero_grad()
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+                # Backward pass仍在外层autocast下，checkpoint重计算使用fp16
+                self.optimizer.zero_grad()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
 
             # Update metrics
             epochLoss += loss.item()
