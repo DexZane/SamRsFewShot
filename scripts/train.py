@@ -74,6 +74,10 @@ def parse_args():
                         help='Directory to save checkpoints')
     parser.add_argument('--logDir', type=str, default='./runs',
                         help='Directory for TensorBoard logs')
+    parser.add_argument('--numWorkers', type=int, default=4,
+                        help='Number of DataLoader worker processes')
+    parser.add_argument('--trainEpisodes', type=int, default=100,
+                        help='Number of episodes per training epoch')
 
     return parser.parse_args()
 
@@ -169,7 +173,7 @@ def main():
         labels=trainLabels,
         nWay=config.data.nWay,
         kShot=config.data.kShot,
-        nEpisodes=100,  # Number of episodes per epoch
+        nEpisodes=args.trainEpisodes,
         seed=42
     )
     valSampler = FewShotSampler(
@@ -181,17 +185,22 @@ def main():
     )
 
     # Create dataloaders with batch samplers
+    useCuda = args.device == 'cuda'
     trainLoader = DataLoader(
         trainDataset,
         batch_sampler=trainSampler,
-        num_workers=0,  # Set to 0 for compatibility with MPS
-        collate_fn=collate_fn
+        num_workers=args.numWorkers,
+        collate_fn=collate_fn,
+        pin_memory=useCuda,
+        persistent_workers=(args.numWorkers > 0)
     )
     valLoader = DataLoader(
         valDataset,
         batch_sampler=valSampler,
-        num_workers=0,
-        collate_fn=collate_fn
+        num_workers=args.numWorkers,
+        collate_fn=collate_fn,
+        pin_memory=useCuda,
+        persistent_workers=(args.numWorkers > 0)
     )
 
     print("Initializing models...")
