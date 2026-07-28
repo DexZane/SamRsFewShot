@@ -4,7 +4,7 @@
 
 Usage:
     python scripts/plotCurves.py --logFile ./runs/training.log
-    python scripts/plotCurves.py --logFile ./runs/training.log --savePath ./results/curves.png
+    python scripts/plotCurves.py --logFile ./runs/training.log --savePath ./results
 """
 
 import argparse
@@ -15,6 +15,26 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+
+
+# ──────────────────────────────────────────────
+# 多格式保存辅助函数
+# ──────────────────────────────────────────────
+
+def _saveFig(fig, saveDir: str, stem: str):
+    """将图表保存为 PNG / PDF / SVG 三种格式
+
+    Args:
+        fig:     matplotlib Figure 对象
+        saveDir: 输出目录（不存在时自动创建）
+        stem:    文件名（不含扩展名），如 "curves"
+    """
+    outDir = Path(saveDir)
+    outDir.mkdir(parents=True, exist_ok=True)
+    for fmt, dpi in [("png", 150), ("pdf", None), ("svg", None)]:
+        path = outDir / f"{stem}.{fmt}"
+        fig.savefig(str(path), dpi=dpi, bbox_inches="tight")
+        print(f"[OK] 已保存: {path}")
 
 
 # ──────────────────────────────────────────────
@@ -141,9 +161,7 @@ def plotCurves(data: dict, savePath: str | None = None, show: bool = True):
     plt.tight_layout()
 
     if savePath:
-        Path(savePath).parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(savePath, dpi=150, bbox_inches="tight")
-        print(f"[OK] 曲线图已保存: {savePath}")
+        _saveFig(fig, savePath, "curves")
 
     if show:
         plt.show()

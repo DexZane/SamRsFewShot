@@ -29,7 +29,6 @@ from collections import defaultdict
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from PIL import Image
 
 projectRoot = Path(__file__).resolve().parent.parent
@@ -38,6 +37,26 @@ sys.path.insert(0, str(projectRoot))
 from data.lovedaDataset import LoveDADataset
 from models.samLora import SAMLoRA
 from models.promptLearner import SimplePromptLearner
+
+
+# ──────────────────────────────────────────────
+# 多格式保存辅助函数
+# ──────────────────────────────────────────────
+
+def _saveFig(fig, saveDir: str, stem: str):
+    """将图表保存为 PNG / PDF / SVG 三种格式
+
+    Args:
+        fig:     matplotlib Figure 对象
+        saveDir: 输出目录（不存在时自动创建）
+        stem:    文件名（不含扩展名），如 "predictions"
+    """
+    outDir = Path(saveDir)
+    outDir.mkdir(parents=True, exist_ok=True)
+    for fmt, dpi in [("png", 120), ("pdf", None), ("svg", None)]:
+        path = outDir / f"{stem}.{fmt}"
+        fig.savefig(str(path), dpi=dpi, bbox_inches="tight")
+        print(f"[OK] 已保存: {path}")
 
 
 # ──────────────────────────────────────────────
@@ -212,10 +231,7 @@ def visualizeGrid(results: list, savePath: str | None, show: bool,
     plt.tight_layout()
 
     if savePath:
-        p = Path(savePath) / "predictions.png"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(str(p), dpi=120, bbox_inches="tight")
-        print(f"[OK] 预测可视化已保存: {p}")
+        _saveFig(fig, savePath, "predictions")
 
     if show:
         plt.show()
@@ -262,10 +278,7 @@ def visualizePerClassIou(results: list, savePath: str | None, show: bool):
     plt.tight_layout()
 
     if savePath:
-        p = Path(savePath) / "perClassIou.png"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(str(p), dpi=120, bbox_inches="tight")
-        print(f"[OK] 类别IoU图已保存: {p}")
+        _saveFig(fig, savePath, "perClassIou")
 
     if show:
         plt.show()
