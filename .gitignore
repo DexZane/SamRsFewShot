@@ -21,6 +21,9 @@ data/downloads/
 training_log.txt
 phase2_validation.log
 
+# Results (generated during training/evaluation)
+results/
+
 # Visualization outputs (large binary files)
 results/**/*.png
 results/**/*.pdf
