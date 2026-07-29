@@ -79,6 +79,8 @@ def parse_args():
                         help='Number of DataLoader worker processes')
     parser.add_argument('--trainEpisodes', type=int, default=100,
                         help='Number of episodes per training epoch')
+    parser.add_argument('--experimentName', type=str, default='baseline',
+                        help='Experiment name for CSV logging (e.g., phase3.1, phase3.2)')
 
     return parser.parse_args()
 
@@ -113,6 +115,9 @@ def main():
     config.training.saveInterval = args.saveInterval
     config.training.checkpointDir = args.checkpointDir
     config.training.logDir = args.logDir
+
+    # Add experiment name to config for CSV logger
+    config.phase = args.experimentName
 
     print(f"\nConfiguration:")
     print(f"  SAM Checkpoint: {config.model.samCheckpoint}")

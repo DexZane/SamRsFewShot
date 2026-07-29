@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from models.loss import CombinedLoss
 from utils.logger import Logger
+from utils.csvLogger import CSVLogger
 from utils.metrics import compute_iou
 
 
@@ -79,6 +80,12 @@ class Trainer:
         self.logger = Logger(
             logDir=config.training.logDir,
             experimentName="sam_rs_fewshot"
+        )
+
+        # Setup CSV logger for structured metrics
+        self.csvLogger = CSVLogger(
+            save_dir=config.training.logDir,
+            experiment_name=f"phase_{getattr(config, 'phase', 'baseline')}"
         )
 
         # Create checkpoint directory
@@ -335,9 +342,19 @@ class Trainer:
             self.logger.log_scalar('train/lr', currentLr, epoch)
             self.logger.info(f"Epoch {epoch}: learning rate = {currentLr:.6f}")
 
+            # Prepare metrics for CSV logging
+            epoch_metrics = {
+                'epoch': epoch,
+                'train_loss': avgLoss,
+                'learning_rate': currentLr,
+                'best_miou': self.bestMiou,
+                'patience_counter': self.patienceCounter
+            }
+
             # Validate at specified intervals
             if epoch % self.config.training.evalInterval == 0:
                 avgMiou = self.validate(epoch)
+                epoch_metrics['val_miou'] = avgMiou
 
                 # Early stopping check
                 if self.patienceCounter >= self.patience:
@@ -345,16 +362,37 @@ class Trainer:
                     print(f"  No improvement for {self.patience} consecutive validations\n")
                     self.logger.info(f"Early stopping triggered after {epoch} epochs")
                     self.logger.info(f"No improvement for {self.patience} consecutive validations")
+
+                    # Log final metrics to CSV
+                    self.csvLogger.log_epoch(epoch_metrics)
                     break
+
+            # Log metrics to CSV
+            self.csvLogger.log_epoch(epoch_metrics)
 
             # Save checkpoint at specified intervals
             if epoch % self.config.training.saveInterval == 0:
                 self.save_checkpoint(epoch, is_best=False)
 
+        # Save training summary
+        summary = {
+            'total_epochs': epoch,
+            'best_val_miou': self.bestMiou,
+            'final_train_loss': avgLoss,
+            'final_learning_rate': currentLr,
+            'early_stopped': self.patienceCounter >= self.patience,
+            'device': str(self.device),
+            'batch_size': self.config.training.batchSize,
+            'lora_dropout': self.config.model.loraDropout,
+            'csv_path': self.csvLogger.get_csv_path()
+        }
+        self.csvLogger.save_summary(summary)
+
         print("\n" + "="*80)
         print(f"\033[1;32m{'Training Completed!':^80}\033[0m")
         print("="*80)
         print(f"  Best mIoU: \033[1;32m{self.bestMiou:.4f}\033[0m")
+        print(f"  CSV saved: {self.csvLogger.get_csv_path()}")
         print("="*80 + "\n")
 
         self.logger.info("Training completed!")
