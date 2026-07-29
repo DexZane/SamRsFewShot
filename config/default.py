@@ -10,7 +10,7 @@ class ModelConfig:
     samModelType: str = "vit_b"
     loraRank: int = 4
     loraAlpha: int = 8
-    loraDropout: float = 0.1
+    loraDropout: float = 0.2  # Phase 3.1: 增大 dropout 缓解过拟合
     nPrompts: int = 5
     promptInitStd: float = 0.02
 

@@ -342,20 +342,20 @@ def main():
 
     # ── 加载 checkpoint ──
     print(f"[INFO] 加载 checkpoint: {args.checkpoint}")
-    ckpt = torch.load(args.checkpoint, map_location="cpu")
+    ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     config = ckpt["config"]
     print(f"[INFO] Checkpoint epoch: {ckpt['epoch']}, best mIoU: {ckpt.get('best_miou', 'N/A'):.4f}")
 
     # ── 初始化模型 ──
     model = SAMLoRA(
         samCheckpoint=config.model.samCheckpoint,
-        modelType=config.model.samModelType,
+        model_type=config.model.samModelType,
         loraRank=config.model.loraRank,
         loraAlpha=config.model.loraAlpha,
         loraDropout=config.model.loraDropout,
     )
     promptLearner = SimplePromptLearner(
-        numClasses=config.data.numClasses,
+        nClasses=config.data.numClasses,
         nPrompts=config.model.nPrompts,
         embedDim=256,
         initStd=config.model.promptInitStd,

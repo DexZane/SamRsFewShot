@@ -24,6 +24,7 @@ from models.promptLearner import SimplePromptLearner
 from training.trainer import Trainer
 from data.lovedaDataset import LoveDADataset
 from data.transforms import DefaultTransform
+from data.augmentedTransform import AugmentedTransform
 from data.fewshotSampler import FewShotSampler
 
 
@@ -128,19 +129,21 @@ def main():
 
     # Create LoveDA datasets with transforms
     print("Loading LoveDA datasets...")
-    transform = DefaultTransform(target_size=1024)
+    # Phase 3.1: 训练集用增强版 transform，验证集用默认 transform
+    trainTransform = AugmentedTransform(target_size=1024, train=True)
+    valTransform = AugmentedTransform(target_size=1024, train=False)
 
     trainDataset = LoveDADataset(
         root=config.data.dataRoot,
         split='Train',
         download=False,  # Assume dataset is already downloaded
-        transform=transform
+        transform=trainTransform
     )
     valDataset = LoveDADataset(
         root=config.data.dataRoot,
         split='Val',
         download=False,
-        transform=transform
+        transform=valTransform
     )
 
     print(f"  Train samples: {len(trainDataset)}")
