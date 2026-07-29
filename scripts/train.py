@@ -136,8 +136,9 @@ def main():
     # Create LoveDA datasets with transforms
     print("Loading LoveDA datasets...")
     # Phase 3.3: 训练集用温和增强，验证集用默认 transform
-    trainTransform = MildAugmentedTransform(target_size=1024, train=True)
-    valTransform = MildAugmentedTransform(target_size=1024, train=False)
+    # Phase 4: 移除数据增强，增加 shot 数
+    trainTransform = DefaultTransform(target_size=1024)
+    valTransform = DefaultTransform(target_size=1024)
 
     trainDataset = LoveDADataset(
         root=config.data.dataRoot,
