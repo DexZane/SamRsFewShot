@@ -135,8 +135,13 @@ class Trainer:
         epochLoss = 0.0
         numBatches = len(self.trainLoader)
 
-        # Progress bar
-        pbar = tqdm(self.trainLoader, desc=f"Epoch {epoch}/{self.config.training.numEpochs}")
+        # YOLO-style progress bar
+        pbar = tqdm(
+            self.trainLoader,
+            desc=f"\033[1m{'Train':<8}\033[0m",
+            bar_format='{desc} {percentage:3.0f}%|{bar:20}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}',
+            ncols=120
+        )
 
         for batchIdx, batch in enumerate(pbar):
             # Unpack batch
@@ -172,9 +177,16 @@ class Trainer:
 
             # Update metrics
             epochLoss += loss.item()
+            avgLossSoFar = epochLoss / (batchIdx + 1)
 
-            # Update progress bar
-            pbar.set_postfix({'loss': f'{loss.item():.4f}'})
+            # YOLO-style postfix with key metrics highlighted
+            currentLR = self.optimizer.param_groups[0]['lr']
+            pbar.set_postfix_str(
+                f"\033[36mEpoch {epoch}/{self.config.training.numEpochs}\033[0m | "
+                f"\033[33mloss {loss.item():.4f}\033[0m | "
+                f"\033[32mavg {avgLossSoFar:.4f}\033[0m | "
+                f"lr {currentLR:.6f}"
+            )
 
         # Compute average loss
         avgLoss = epochLoss / numBatches
@@ -201,8 +213,16 @@ class Trainer:
         totalMiou = 0.0
         numBatches = len(self.valLoader)
 
+        # YOLO-style validation bar
+        pbar = tqdm(
+            self.valLoader,
+            desc=f"\033[1m{'Val':<8}\033[0m",
+            bar_format='{desc} {percentage:3.0f}%|{bar:20}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}',
+            ncols=120
+        )
+
         with torch.no_grad():
-            for batch in tqdm(self.valLoader, desc="Validation"):
+            for batchIdx, batch in enumerate(pbar):
                 # Unpack batch
                 images = batch['image'].to(self.device)
                 masks = batch['mask'].to(self.device)
@@ -228,6 +248,10 @@ class Trainer:
                 # 二值IoU：类别0=背景，类别1=目标前景
                 miou, _ = compute_iou(predLabels.squeeze(1), targetLabels.squeeze(1), numClasses=2)
                 totalMiou += miou
+
+                # Update progress bar
+                avgMiouSoFar = totalMiou / (batchIdx + 1)
+                pbar.set_postfix_str(f"\033[35mmIoU {avgMiouSoFar:.4f}\033[0m")
 
         # Compute average mIoU
         avgMiou = totalMiou / numBatches
@@ -288,6 +312,17 @@ class Trainer:
         """
         Main training loop with early stopping
         """
+        print("\n" + "="*80)
+        print(f"\033[1;36m{'SAM-RS Few-Shot Training':^80}\033[0m")
+        print("="*80)
+        print(f"  Device       : {self.device}")
+        print(f"  Epochs       : {self.config.training.numEpochs}")
+        print(f"  Batch Size   : {self.config.training.batchSize} ({self.config.data.nWay}-way {self.config.data.kShot}-shot)")
+        print(f"  Learning Rate: {self.config.training.learningRate:.6f}")
+        print(f"  LoRA Dropout : {self.config.model.loraDropout}")
+        print(f"  Early Stop   : patience={self.patience}")
+        print("="*80 + "\n")
+
         self.logger.info("Starting training...")
 
         for epoch in range(1, self.config.training.numEpochs + 1):
@@ -306,6 +341,8 @@ class Trainer:
 
                 # Early stopping check
                 if self.patienceCounter >= self.patience:
+                    print(f"\n\033[1;33m⚠ Early stopping triggered after {epoch} epochs\033[0m")
+                    print(f"  No improvement for {self.patience} consecutive validations\n")
                     self.logger.info(f"Early stopping triggered after {epoch} epochs")
                     self.logger.info(f"No improvement for {self.patience} consecutive validations")
                     break
@@ -313,6 +350,12 @@ class Trainer:
             # Save checkpoint at specified intervals
             if epoch % self.config.training.saveInterval == 0:
                 self.save_checkpoint(epoch, is_best=False)
+
+        print("\n" + "="*80)
+        print(f"\033[1;32m{'Training Completed!':^80}\033[0m")
+        print("="*80)
+        print(f"  Best mIoU: \033[1;32m{self.bestMiou:.4f}\033[0m")
+        print("="*80 + "\n")
 
         self.logger.info("Training completed!")
         self.logger.info(f"Best validation mIoU: {self.bestMiou:.4f}")
