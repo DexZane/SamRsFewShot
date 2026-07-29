@@ -25,6 +25,7 @@ from training.trainer import Trainer
 from data.lovedaDataset import LoveDADataset
 from data.transforms import DefaultTransform
 from data.augmentedTransform import AugmentedTransform
+from data.mildAugmentedTransform import MildAugmentedTransform
 from data.fewshotSampler import FewShotSampler
 
 
@@ -134,9 +135,9 @@ def main():
 
     # Create LoveDA datasets with transforms
     print("Loading LoveDA datasets...")
-    # Phase 3.1: 训练集用增强版 transform，验证集用默认 transform
-    trainTransform = AugmentedTransform(target_size=1024, train=True)
-    valTransform = AugmentedTransform(target_size=1024, train=False)
+    # Phase 3.3: 训练集用温和增强，验证集用默认 transform
+    trainTransform = MildAugmentedTransform(target_size=1024, train=True)
+    valTransform = MildAugmentedTransform(target_size=1024, train=False)
 
     trainDataset = LoveDADataset(
         root=config.data.dataRoot,

@@ -8,10 +8,10 @@ class ModelConfig:
     """Model configuration."""
     samCheckpoint: Optional[str] = None
     samModelType: str = "vit_b"
-    loraRank: int = 8  # Phase 3.2: 增大 LoRA rank
-    loraAlpha: int = 16  # alpha = 2 * rank (保持比例)
-    loraDropout: float = 0.2  # 保持 Phase 3.1 的 dropout
-    nPrompts: int = 10  # Phase 3.2: 增加 prompt 数量
+    loraRank: int = 4  # Phase 3.3: 恢复小容量
+    loraAlpha: int = 8  # alpha = 2 * rank
+    loraDropout: float = 0.1  # Phase 3.3: 降低 dropout（温和增强）
+    nPrompts: int = 5  # Phase 3.3: 恢复少量 prompts
     promptInitStd: float = 0.02
 
 
