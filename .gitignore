@@ -26,6 +26,11 @@ results/**/*.png
 results/**/*.pdf
 results/**/*.svg
 
+# Temporary documentation and setup files
+PHASE*_*.md
+setup.py
+test_*.py
+
 # OS
 .DS_Store
 Thumbs.db
